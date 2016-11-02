@@ -88,3 +88,16 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+/*
+int
+sys_shmgetat(void)
+{
+  int key, npages;
+  argint(0, &key);
+  argint(1, &npages);
+  cprintf("Key = %d npages = %d\n", key, npages);
+  return key;
+}
+
+*/

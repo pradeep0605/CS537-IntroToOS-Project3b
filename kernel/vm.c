@@ -364,3 +364,25 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
   }
   return 0;
 }
+
+int
+sys_shmgetat(void)
+{
+  int key, npages;
+  if (argint(0, &key) < 0 ||  argint(1, &npages) < 0) {
+    return -1;
+  }
+  cprintf("Key = %d npages = %d\n", key, npages);
+  return key * npages;
+}
+
+int sys_shm_refcount(void)
+{
+  int key;
+  if (argint(0, &key) < 0) {
+    return -1;
+  }
+  return key;
+}
+
+
