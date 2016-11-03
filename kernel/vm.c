@@ -297,7 +297,7 @@ freevm(pde_t *pgdir)
 // Given a parent process's page table, create a copy
 // of it for a child.
 pde_t*
-copyuvm(pde_t *pgdir, uint sz)
+copyuvm(pde_t *pgdir, uint sz, struct proc *parent, struct proc *child)
 {
   pde_t *d;
   pte_t *pte;
@@ -312,6 +312,9 @@ copyuvm(pde_t *pgdir, uint sz)
     if(!(*pte & PTE_P))
       panic("copyuvm: page not present");
     pa = PTE_ADDR(*pte);
+    /* TODO: Pradeep. Do not copy all the physical pages. Just point to the same
+     * shared local of the parent process.
+     */
     if((mem = kalloc()) == 0)
       goto bad;
     memmove(mem, (char*)pa, PGSIZE);
@@ -365,6 +368,82 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
   return 0;
 }
 
+/* 8 keys (0 to 7) * 4 pages (0 to 3) = 32 */
+#define MAX_SHARED_PAGES_PER_KEY 4
+#define MAX_SHARED_KEYS 8
+
+typedef struct keys_pages {
+  void *addr[MAX_SHARED_PAGES_PER_KEY + 1];
+  int N;
+  int refcount;
+} keys_pages_t;
+
+
+keys_pages_t spages[MAX_SHARED_KEYS]; 
+
+void
+shminit()
+{
+  int i = 0, j = 0;;
+  for(i = 0; i < MAX_SHARED_KEYS; ++i) {
+    spages[i].N = 0;
+    spages[i].refcount = 0;
+    for (j = 0; j < MAX_SHARED_PAGES_PER_KEY; j++) {
+      spages[i].addr[j] = NULL; // kalloc();
+    }
+  }
+}
+
+int attach_pages_to_process(struct proc *proc, int key, int npages)
+{
+  int i = 0;
+  if (!proc)
+    return -1;
+
+  if (spages[key].refcount == 0) {
+    /* No pages are allocated yet for this key, thus allocate the pages */
+    spages[key].N = npages;
+    for (i = 0; i < npages; ++i) {
+      /* Allocate memory to all pages in the kernel, but map only those pages
+       * which are requested by the process, i.e. npages of pages.
+       */
+      spages[key].addr[i] = kalloc();
+      if (spages[key].addr[i] == NULL)
+        return -1;
+      /* Memset the page when allocated for the first time */
+      memset(spages[key].addr[i], 0, PGSIZE);
+    }
+  } else {
+    /* Page has already been allocated. If a page has been attached to a process
+     * and it is requesting again, then return the already existing virutal
+     * address of the key's pages
+     */
+    if (proc->spages_info.key_addresses[key]) {
+      return (int)proc->spages_info.key_addresses[key];
+    }
+    npages = spages[key].N;
+  }
+
+  void *location = (void*) proc->spages_info.current_top - (PGSIZE * npages);
+    
+  for (i = 0; i < npages; ++i) {
+    // map the physical page to the process and return the virtual
+    // addresss.
+    mappages(proc->pgdir, location + (i * PGSIZE),
+      PGSIZE, (uint) spages[key].addr[i], PTE_P | PTE_W | PTE_U);
+  }
+
+  proc->spages_info.key_addresses[key] = location;
+  proc->spages_info.current_top = (uint) location;
+  spages[key].refcount++;
+  /*
+  cprintf("KERNEL pid = %d VA: 0x%x Key = %d npages = %d\n",
+    proc->pid, location, key, npages);
+  */
+  return (int) proc->spages_info.current_top;
+}
+
+
 int
 sys_shmgetat(void)
 {
@@ -372,8 +451,39 @@ sys_shmgetat(void)
   if (argint(0, &key) < 0 ||  argint(1, &npages) < 0) {
     return -1;
   }
-  cprintf("Key = %d npages = %d\n", key, npages);
-  return key * npages;
+
+  if (key < 0 || key >= MAX_SHARED_KEYS ||
+    npages < 1 || npages > MAX_SHARED_PAGES_PER_KEY) {
+    return -1;
+  }
+
+  return attach_pages_to_process(proc, key, npages);
+}
+
+void sys_shmdt(struct proc *proc)
+{
+  pte_t *pte;
+  int i, k;
+  /* Remove all the page table entries */
+  for (i = proc->spages_info.current_top; i < USERTOP; i += PGSIZE) {
+    pte = walkpgdir(proc->pgdir, (void *)i, 0);
+    *pte = 0;
+  }
+
+  for (i = 0; i < MAX_SHARED_KEYS; ++i) {
+    if (proc->spages_info.key_addresses[i]) {
+      spages[i].refcount--;      
+    }
+    proc->spages_info.key_addresses[i] = NULL;
+    proc->spages_info.current_top = 0;
+
+    if (spages[i].refcount == 0) {
+      for (k = 0; k < spages[i].N; ++k) {
+        kfree(spages[i].addr[k]);
+      }
+    }
+    spages[i].N = 0;
+  }
 }
 
 int sys_shm_refcount(void)
@@ -382,7 +492,10 @@ int sys_shm_refcount(void)
   if (argint(0, &key) < 0) {
     return -1;
   }
-  return key;
-}
+  
+  if (key < 0 || key >= MAX_SHARED_KEYS)
+    return -1;
 
+  return spages[key].refcount;
+}
 

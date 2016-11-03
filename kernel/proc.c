@@ -67,7 +67,9 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
-
+  
+  p->spages_info.current_top = USERTOP;
+  memset(p->spages_info.key_addresses, 0, sizeof(void*) * 8);
   return p;
 }
 
@@ -135,7 +137,7 @@ fork(void)
     return -1;
 
   // Copy process state from p.
-  if((np->pgdir = copyuvm(proc->pgdir, proc->sz)) == 0){
+  if((np->pgdir = copyuvm(proc->pgdir, proc->sz, proc, np)) == 0) {
     kfree(np->kstack);
     np->kstack = 0;
     np->state = UNUSED;
@@ -156,6 +158,16 @@ fork(void)
   pid = np->pid;
   np->state = RUNNABLE;
   safestrcpy(np->name, proc->name, sizeof(proc->name));
+
+  /* Map the shared pages as well from the parent.
+   * Note that we're not allocing new pages for the child, but just modifing the
+   * page table entries to point to shared pages.*/
+  for(i = 0 ;i < 8; i++) {
+    if (proc->spages_info.key_addresses[i]) {
+      attach_pages_to_process(np, i, 1);
+    }
+  }
+
   return pid;
 }
 
@@ -170,6 +182,9 @@ exit(void)
 
   if(proc == initproc)
     panic("init exiting");
+
+  // Remove all the share memory locations
+  sys_shmdt(proc);
 
   // Close all open files.
   for(fd = 0; fd < NOFILE; fd++){

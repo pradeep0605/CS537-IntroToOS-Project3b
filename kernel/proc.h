@@ -59,6 +59,10 @@ struct context {
 
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+typedef struct proc_spages_info{
+  void *key_addresses[8];
+  uint current_top;
+} proc_spages_info_t;
 // Per-process state
 struct proc {
   uint sz;                     // Size of process memory (bytes)
@@ -74,6 +78,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  proc_spages_info_t spages_info;
 };
 
 // Process memory is laid out contiguously, low addresses first:
