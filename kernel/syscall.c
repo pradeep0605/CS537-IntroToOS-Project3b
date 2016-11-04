@@ -14,10 +14,15 @@
 // to a saved program counter, and then the first argument.
 
 // Fetch the int at addr from process p.
+#define IS_INVALID_ADDRESS(addr, p) \
+  ((((addr) > p->sz) && ((addr) < p->spages_info.current_top)) ||\
+  ((addr) >= USERTOP)) \
+
 int
 fetchint(struct proc *p, uint addr, int *ip)
 {
-  if(addr >= p->sz || addr+4 > p->sz)
+  if (IS_INVALID_ADDRESS(addr, p)  || IS_INVALID_ADDRESS((addr + 4), p))
+  //if(addr >= p->sz || addr+4 > p->sz)
     return -1;
   *ip = *(int*)(addr);
   return 0;
@@ -30,13 +35,18 @@ int
 fetchstr(struct proc *p, uint addr, char **pp)
 {
   char *s, *ep;
-
-  if(addr >= p->sz)
+ 
+  if (IS_INVALID_ADDRESS(addr, p))
     return -1;
   *pp = (char*)addr;
   ep = (char*)p->sz;
   for(s = *pp; s < ep; s++)
     if(*s == 0)
+      return s - *pp;
+  
+  *pp = (char *) p->spages_info.current_top;
+  for (s = (char *) p->spages_info.current_top; s < (char *) USERTOP; s++)
+    if (*s == 0)
       return s - *pp;
   return -1;
 }
@@ -58,7 +68,8 @@ argptr(int n, char **pp, int size)
   
   if(argint(n, &i) < 0)
     return -1;
-  if((uint)i >= proc->sz || (uint)i+size > proc->sz)
+  if (IS_INVALID_ADDRESS(((uint)i), proc) ||
+    IS_INVALID_ADDRESS((uint)i + size, proc))
     return -1;
   *pp = (char*)i;
   return 0;

@@ -424,6 +424,11 @@ int attach_pages_to_process(struct proc *proc, int key, int npages)
   if (spages[key].refcount == 0) {
     /* No pages are allocated yet for this key, thus allocate the pages */
     spages[key].N = npages;
+    /* Don't have enough address space to attach the shared pages */
+    if ((proc->spages_info.current_top -  proc->sz) < npages * PGSIZE) {
+      return -1;
+    }
+
     for (i = 0; i < npages; ++i) {
       /* Allocate memory to all pages in the kernel, but map only those pages
        * which are requested by the process, i.e. npages of pages.
@@ -443,6 +448,11 @@ int attach_pages_to_process(struct proc *proc, int key, int npages)
       return (int)proc->spages_info.key_addresses[key];
     }
     npages = spages[key].N;
+  }
+
+  /* Don't have enough address space to attach the shared pages */
+  if ((proc->spages_info.current_top -  proc->sz) < npages * PGSIZE) {
+    return -1;
   }
 
   void *location = (void*) proc->spages_info.current_top - (PGSIZE * npages);
