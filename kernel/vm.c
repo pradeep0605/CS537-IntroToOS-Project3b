@@ -306,7 +306,7 @@ copyuvm(pde_t *pgdir, uint sz, struct proc *parent, struct proc *child)
 
   if((d = setupkvm()) == 0)
     return 0;
-  for(i = 0; i < sz; i += PGSIZE){
+  for(i = 0; i < sz; i += PGSIZE) {
     if((pte = walkpgdir(pgdir, (void*)i, 0)) == 0)
       panic("copyuvm: pte should exist");
     if(!(*pte & PTE_P))
@@ -320,6 +320,15 @@ copyuvm(pde_t *pgdir, uint sz, struct proc *parent, struct proc *child)
     memmove(mem, (char*)pa, PGSIZE);
     if(mappages(d, (void*)i, PGSIZE, PADDR(mem), PTE_W|PTE_U) < 0)
       goto bad;
+  }
+
+  for (i = USERTOP - PGSIZE; i >= parent->spages_info.current_top; i-= PGSIZE) {
+    pte_t* pte;
+    pte = walkpgdir(pgdir, (void *) i, 0);
+    if (*pte) {
+      mappages(d, (void *)i, PGSIZE,
+        PADDR(PTE_ADDR(*pte)), PTE_P | PTE_W | PTE_U);
+    }
   }
   return d;
 
@@ -394,6 +403,18 @@ shminit()
   }
 }
 
+void
+shm_inc_refcount(int key)
+{
+  spages[key].refcount++;
+}
+
+void
+shm_dec_refcount(int key)
+{
+  spages[key].refcount--;
+}
+
 int attach_pages_to_process(struct proc *proc, int key, int npages)
 {
   int i = 0;
@@ -435,7 +456,7 @@ int attach_pages_to_process(struct proc *proc, int key, int npages)
 
   proc->spages_info.key_addresses[key] = location;
   proc->spages_info.current_top = (uint) location;
-  spages[key].refcount++;
+  shm_inc_refcount(key);
   /*
   cprintf("KERNEL pid = %d VA: 0x%x Key = %d npages = %d\n",
     proc->pid, location, key, npages);
@@ -464,25 +485,30 @@ void sys_shmdt(struct proc *proc)
 {
   pte_t *pte;
   int i, k;
+  if (!proc)
+    return;
   /* Remove all the page table entries */
   for (i = proc->spages_info.current_top; i < USERTOP; i += PGSIZE) {
     pte = walkpgdir(proc->pgdir, (void *)i, 0);
-    *pte = 0;
+    if (*pte)
+      *pte = 0;
   }
 
   for (i = 0; i < MAX_SHARED_KEYS; ++i) {
     if (proc->spages_info.key_addresses[i]) {
-      spages[i].refcount--;      
+      shm_dec_refcount(i);
+      
     }
     proc->spages_info.key_addresses[i] = NULL;
-    proc->spages_info.current_top = 0;
+    proc->spages_info.current_top = USERTOP;
 
     if (spages[i].refcount == 0) {
       for (k = 0; k < spages[i].N; ++k) {
         kfree(spages[i].addr[k]);
+        spages[i].addr[k] = NULL;
       }
+      spages[i].N = 0;
     }
-    spages[i].N = 0;
   }
 }
 

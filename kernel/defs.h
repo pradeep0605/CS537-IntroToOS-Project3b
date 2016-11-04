@@ -171,6 +171,8 @@ int             copyout(pde_t*, uint, void*, uint);
 void            shminit(void);
 void            sys_shmdt(struct proc*);
 int             attach_pages_to_process(struct proc*, int, int);
+void            shm_inc_refcount(int);
+void            shm_dec_refcount(int);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

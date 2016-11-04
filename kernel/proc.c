@@ -162,12 +162,13 @@ fork(void)
   /* Map the shared pages as well from the parent.
    * Note that we're not allocing new pages for the child, but just modifing the
    * page table entries to point to shared pages.*/
-  for(i = 0 ;i < 8; i++) {
+  for(i = 0 ; i < 8; i++) {
     if (proc->spages_info.key_addresses[i]) {
-      attach_pages_to_process(np, i, 1);
+      np->spages_info.key_addresses[i] = proc->spages_info.key_addresses[i];
+      shm_inc_refcount(i);
     }
   }
-
+  np->spages_info.current_top = proc->spages_info.current_top;
   return pid;
 }
 

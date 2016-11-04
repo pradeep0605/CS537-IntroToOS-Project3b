@@ -80,6 +80,9 @@ exec(char *path, char **argv)
       last = s+1;
   safestrcpy(proc->name, last, sizeof(proc->name));
 
+  // detach the shared memories associated with the previous image of this
+  // process.
+  sys_shmdt(proc);
   // Commit to the user image.
   oldpgdir = proc->pgdir;
   proc->pgdir = pgdir;
